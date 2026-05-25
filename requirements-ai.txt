@@ -1,0 +1,4 @@
+# Optional production RAG dependencies.
+# On Windows, chromadb may require Microsoft C++ Build Tools for chroma-hnswlib.
+chromadb==0.5.23
+sentence-transformers==3.3.1
