@@ -600,24 +600,59 @@ function DocumentItem({ doc, tone }) {
 // ---------------------------------------------------------------------------
 function ChatMessageView({ message }) {
   const isUser = message.role === "user";
-  const [mermaidSvg, setMermaidSvg] = useState(null);
+  const [mermaidSvgs, setMermaidSvgs] = useState({});
 
   useEffect(() => {
-    const match = message.content?.match(/```mermaid\n([\s\S]*?)```/);
-    if (match) {
-      mermaid
-        .render(`mermaid-${message.id}`, match[1])
-        .then(({ svg }) => setMermaidSvg(svg))
-        .catch(() => setMermaidSvg(null));
-    } else {
-      setMermaidSvg(null);
+    // Find all mermaid blocks in the content
+    const matches = [...(message.content?.matchAll(/```mermaid\n([\s\S]*?)```/g) ?? [])];
+    if (!matches.length) {
+      setMermaidSvgs({});
+      return;
     }
+    matches.forEach((match, idx) => {
+      const id = `mermaid-${message.id}-${idx}`;
+      mermaid
+        .render(id, match[1].trim())
+        .then(({ svg }) => setMermaidSvgs((prev) => ({ ...prev, [idx]: svg })))
+        .catch(() => { });
+    });
   }, [message.content, message.id]);
 
-  // Replace mermaid block in content with a placeholder so surrounding text still renders
-  const contentWithoutMermaid = mermaidSvg
-    ? message.content.replace(/```mermaid\n[\s\S]*?```/, "")
-    : message.content;
+  // Replace each ```mermaid...``` block with a placeholder token, then render
+  const renderContent = () => {
+    if (!message.content) return null;
+
+    const parts = message.content.split(/(```mermaid\n[\s\S]*?```)/g);
+    let diagramIdx = 0;
+
+    return parts.map((part, i) => {
+      if (part.startsWith("```mermaid")) {
+        const svg = mermaidSvgs[diagramIdx];
+        const idx = diagramIdx++;
+        if (svg) {
+          return (
+            <div
+              key={i}
+              className="mermaid-output"
+              dangerouslySetInnerHTML={{ __html: svg }}
+              aria-label="Mermaid diagram"
+            />
+          );
+        }
+        // Still rendering — show a small placeholder
+        return (
+          <div key={i} className="mermaid-loading" aria-label="Rendering diagram">
+            <Loader2 className="spin" size={16} aria-hidden="true" />
+            <span>Rendering diagram…</span>
+          </div>
+        );
+      }
+      if (part.trim()) {
+        return <ReactMarkdown key={i} remarkPlugins={[remarkGfm]}>{part}</ReactMarkdown>;
+      }
+      return null;
+    });
+  };
 
   return (
     <article
@@ -631,18 +666,7 @@ function ChatMessageView({ message }) {
       )}
       <div className={`message-bubble ${isUser ? "user-bubble" : "assistant-bubble"}`}>
         {message.content ? (
-          <>
-            {mermaidSvg && (
-              <div
-                className="mermaid-output"
-                dangerouslySetInnerHTML={{ __html: mermaidSvg }}
-                aria-label="Mermaid diagram"
-              />
-            )}
-            {contentWithoutMermaid.trim() && (
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{contentWithoutMermaid}</ReactMarkdown>
-            )}
-          </>
+          renderContent()
         ) : (
           <div className="message-skeleton" aria-label="Loading response">
             <span />

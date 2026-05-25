@@ -1233,6 +1233,25 @@ button {
   font-weight: 650;
 }
 
+.mermaid-output {
+  overflow-x: auto;
+  padding: 8px 0;
+}
+
+.mermaid-output svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0;
+  color: #6b55f2;
+  font-size: 13px;
+}
+
 .spin {
   animation: spin 0.9s linear infinite;
 }
