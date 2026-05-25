@@ -54,21 +54,27 @@ def build_input(message: str, history: list[ChatMessage], results: list[SearchRe
 def fallback_answer(message: str, results: list[SearchResult]) -> str:
     if not results:
         return (
-            "I could not find relevant PDF context for that question yet. "
-            "Upload documents or try a more specific query."
+            "I could not find relevant content in your documents for that question. "
+            "Try uploading more documents or rephrasing your query."
         )
 
-    parts = [
-        "I found the most relevant document context, but GPT generation is not configured yet. "
-        "Here is a grounded draft from retrieval:"
-    ]
-    for result in results[:3]:
-        snippet = result.text.strip().replace("\n", " ")
-        if len(snippet) > 420:
-            snippet = f"{snippet[:417]}..."
-        parts.append(f"[{result.rank}] {snippet}")
-    parts.append("Set OPENAI_API_KEY to enable full GPT responses.")
-    return "\n\n".join(parts)
+    # Deduplicate chunks by source document to avoid repeating the same passage
+    seen: set[str] = set()
+    unique_results: list[SearchResult] = []
+    for result in results:
+        key = result.text.strip()[:120]
+        if key not in seen:
+            seen.add(key)
+            unique_results.append(result)
+
+    parts = ["Here is what I found in your documents:\n"]
+    for result in unique_results[:3]:
+        snippet = result.text.strip()
+        if len(snippet) > 500:
+            snippet = f"{snippet[:497]}..."
+        parts.append(f"**{result.citation.source_document}** (p. {result.citation.page_number})\n\n{snippet}")
+
+    return "\n\n---\n\n".join(parts)
 
 
 class OpenAIChatService:
@@ -101,18 +107,24 @@ class OpenAIChatService:
 
     def stream(self, message: str, history: list[ChatMessage], results: list[SearchResult]) -> Iterator[str]:
         if self.client is None:
-            text = fallback_answer(message, results)
-            for word in text.split(" "):
-                yield f"{word} "
+            yield from self._fallback_stream(message, results)
             return
 
-        stream = self.client.responses.create(
-            model=self.model,
-            instructions=SYSTEM_PROMPT,
-            input=build_input(message, history, results),
-            stream=True,
-        )
+        try:
+            stream = self.client.responses.create(
+                model=self.model,
+                instructions=SYSTEM_PROMPT,
+                input=build_input(message, history, results),
+                stream=True,
+            )
+            for event in stream:
+                if event.type == "response.output_text.delta":
+                    yield event.delta
+        except Exception:
+            # API unavailable or quota exceeded — fall back to retrieval-based answer
+            yield from self._fallback_stream(message, results)
 
-        for event in stream:
-            if event.type == "response.output_text.delta":
-                yield event.delta
+    def _fallback_stream(self, message: str, results: list[SearchResult]) -> Iterator[str]:
+        text = fallback_answer(message, results)
+        for word in text.split(" "):
+            yield f"{word} "

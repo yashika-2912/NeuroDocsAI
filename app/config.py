@@ -15,7 +15,7 @@ class Settings(BaseModel):
     vector_fallback_path: Path = Path("storage/vector_fallback.json")
     chroma_collection: str = "neurodocs_chunks"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-5")
+    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
     chunk_size: int = 1200
     chunk_overlap: int = 220

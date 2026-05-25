@@ -11,11 +11,9 @@ import {
   ChevronDown,
   Copy,
   FileText,
-  Filter,
   GitCompare,
   GitFork,
   GraduationCap,
-  Link,
   Loader2,
   Maximize2,
   MessageSquareText,
@@ -29,87 +27,82 @@ import {
   Sun,
   ThumbsDown,
   ThumbsUp,
-  Upload,
-  Zap
+  Zap,
 } from "lucide-react";
 import "./styles.css";
-import Login from "./Login";
-import Register from "./Register";
+import AuthForm from "./AuthForm";
+import { API_BASE } from "./api";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
-
-const starterDocuments = [
-  { filename: "Operating Systems Notes.pdf", size_bytes: 12400000, page_count: 230, id: "sample-os" },
-  { filename: "Database Management.pdf", size_bytes: 8700000, page_count: 189, id: "sample-db" },
-  { filename: "Computer Networks.pdf", size_bytes: 15200000, page_count: 312, id: "sample-cn" },
-  { filename: "AI Research Papers.pdf", size_bytes: 10100000, page_count: 145, id: "sample-ai" },
-  { filename: "ML Algorithms Guide.pdf", size_bytes: 7300000, page_count: 98, id: "sample-ml" }
-];
-
-const quickPrompts = {
+// ---------------------------------------------------------------------------
+// Quick-action prompts
+// ---------------------------------------------------------------------------
+const QUICK_PROMPTS = {
   Summarize: "Summarize the uploaded documents with citations.",
   "Generate Quiz": "Generate five quiz questions from the retrieved document context.",
   "Create Flashcards": "Create flashcards from the most important concepts.",
   "Compare Docs": "Compare the uploaded documents and show key differences.",
-  "Show Mermaid Diagram": "Create a Mermaid diagram summarizing the main concepts.",
+  "Mind Map": "Create a Mermaid diagram summarizing the main concepts.",
   "Show Table": "Show a table comparing the main documents or concepts.",
-  "Show Research Summary": "Generate a research summary from the uploaded documents."
+  "Research Summary": "Generate a research summary from the uploaded documents.",
 };
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 function formatBytes(bytes = 0) {
   if (!bytes) return "PDF";
-  const mb = bytes / 1024 / 1024;
-  return `${mb.toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+const TONES = ["red", "blue", "green", "violet", "amber"];
 function documentTone(index) {
-  return ["red", "blue", "green", "violet", "amber"][index % 5];
+  return TONES[index % TONES.length];
 }
 
+function quickIcon(label) {
+  const props = { size: 17 };
+  const map = {
+    Summarize: <MessageSquareText {...props} />,
+    "Generate Quiz": <GraduationCap {...props} />,
+    "Create Flashcards": <BrainCircuit {...props} />,
+    "Compare Docs": <GitCompare {...props} />,
+    "Mind Map": <Network {...props} />,
+    "Show Table": <GitFork {...props} />,
+    "Research Summary": <Bot {...props} />,
+  };
+  return map[label] ?? <Sparkles {...props} />;
+}
+
+// ---------------------------------------------------------------------------
+// App
+// ---------------------------------------------------------------------------
 function App() {
+  const [authMode, setAuthMode] = useState("login");
+  const [user, setUser] = useState(null);
+
   const [documents, setDocuments] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
-  const [messages, setMessages] = useState([
-    {
-      id: "welcome-user",
-      role: "user",
-      content: "Explain deadlock in operating systems with example and prevention techniques.",
-      created_at: new Date().toISOString()
-    },
-    {
-      id: "welcome-assistant",
-      role: "assistant",
-      content:
-        "Deadlock is a situation in operating systems where two or more processes are blocked forever, each waiting for a resource held by another process in the group.\n\n### Example\nConsider two processes P1 and P2 and two resources R1 and R2.\n\n- P1 holds R1 and requests R2.\n- P2 holds R2 and requests R1.\n\nNeither can proceed, resulting in a deadlock.\n\n### Necessary Conditions (Coffman Conditions)\n1. **Mutual Exclusion** - Resources cannot be shared.\n2. **Hold and Wait** - Process holds at least one resource and waits for others.\n3. **No Preemption** - Resources cannot be forcibly taken; they must be released voluntarily.\n4. **Circular Wait** - A circular chain of processes exists, each waiting for a resource held by the next.\n\n### Prevention Techniques\n- **Mutual Exclusion** - Not required for sharable resources.\n- **Hold and Wait** - Require processes to request all resources at once.\n- **No Preemption** - Allow resource preemption if a process cannot proceed.\n- **Circular Wait** - Impose an ordering on resources and request in order.",
-      created_at: new Date().toISOString(),
-      citations: [
-        { label: "Operating Systems Notes.pdf (p. 45)", source_document: "Operating Systems Notes.pdf", page_number: 45 },
-        { label: "Operating Systems Notes.pdf (p. 47)", source_document: "Operating Systems Notes.pdf", page_number: 47 },
-        { label: "Computer Networks.pdf (p. 103)", source_document: "Computer Networks.pdf", page_number: 103 }
-      ]
-    }
-  ]);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [rightTab, setRightTab] = useState("Sources");
+
   const fileInputRef = useRef(null);
   const scrollRef = useRef(null);
 
-  const visibleDocuments = documents.length ? documents : starterDocuments;
   const latestCitations = useMemo(() => {
-    const fromMessages = [...messages].reverse().find((message) => message.citations?.length);
-    return fromMessages?.citations ?? [];
+    const msg = [...messages].reverse().find((m) => m.citations?.length);
+    return msg?.citations ?? [];
   }, [messages]);
 
-  const [authMode, setAuthMode] = useState("login");
-  const [user, setUser] = useState(null);
-
   useEffect(() => {
-    loadDocuments();
-    loadSessions();
-  }, []);
+    if (user) {
+      loadDocuments();
+      loadSessions();
+    }
+  }, [user]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -117,8 +110,8 @@ function App() {
 
   async function loadDocuments() {
     try {
-      const response = await fetch(`${API_BASE}/api/documents`);
-      if (response.ok) setDocuments(await response.json());
+      const res = await fetch(`${API_BASE}/api/documents`);
+      if (res.ok) setDocuments(await res.json());
     } catch {
       setDocuments([]);
     }
@@ -126,26 +119,27 @@ function App() {
 
   async function loadSessions() {
     try {
-      const response = await fetch(`${API_BASE}/api/chat/sessions`);
-      if (response.ok) setSessions(await response.json());
+      const res = await fetch(`${API_BASE}/api/chat/sessions`);
+      if (res.ok) setSessions(await res.json());
     } catch {
       setSessions([]);
     }
   }
 
   async function uploadFiles(files) {
-    const pdfs = Array.from(files || []).filter((file) => file.type === "application/pdf" || file.name.endsWith(".pdf"));
+    const pdfs = Array.from(files ?? []).filter(
+      (f) => f.type === "application/pdf" || f.name.endsWith(".pdf")
+    );
     if (!pdfs.length) return;
-
     const formData = new FormData();
-    pdfs.forEach((file) => formData.append("files", file));
+    pdfs.forEach((f) => formData.append("files", f));
     setUploading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/documents/upload`, {
+      const res = await fetch(`${API_BASE}/api/documents/upload`, {
         method: "POST",
-        body: formData
+        body: formData,
       });
-      if (!response.ok) throw new Error(await response.text());
+      if (!res.ok) throw new Error(await res.text());
       await loadDocuments();
     } finally {
       setUploading(false);
@@ -157,30 +151,30 @@ function App() {
     const prompt = messageText.trim();
     if (!prompt || isStreaming) return;
 
-    const userMessage = {
+    const userMsg = {
       id: crypto.randomUUID(),
       role: "user",
       content: prompt,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     };
     const assistantId = crypto.randomUUID();
-    setMessages((current) => [
-      ...current,
-      userMessage,
-      { id: assistantId, role: "assistant", content: "", created_at: new Date().toISOString(), citations: [] }
+    setMessages((prev) => [
+      ...prev,
+      userMsg,
+      { id: assistantId, role: "assistant", content: "", created_at: new Date().toISOString(), citations: [] },
     ]);
     setInput("");
     setIsStreaming(true);
 
     try {
-      const response = await fetch(`${API_BASE}/api/chat/stream`, {
+      const res = await fetch(`${API_BASE}/api/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: prompt, session_id: activeSessionId, top_k: 5 })
+        body: JSON.stringify({ message: prompt, session_id: activeSessionId, top_k: 5 }),
       });
-      if (!response.ok || !response.body) throw new Error("Unable to stream chat response.");
+      if (!res.ok || !res.body) throw new Error("Unable to stream chat response.");
 
-      const reader = response.body.getReader();
+      const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
       while (true) {
@@ -193,15 +187,12 @@ function App() {
       }
       if (buffer) processSseBlock(buffer, assistantId);
       await loadSessions();
-    } catch (error) {
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === assistantId
-            ? {
-              ...message,
-              content: `I could not reach the chat service. ${error.message}`
-            }
-            : message
+    } catch (err) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? { ...m, content: `I could not reach the chat service. ${err.message}` }
+            : m
         )
       );
     } finally {
@@ -210,45 +201,42 @@ function App() {
   }
 
   function processSseBlock(block, assistantId) {
-    const event = block
-      .split("\n")
-      .find((line) => line.startsWith("event:"))
-      ?.replace("event:", "")
-      .trim();
-    const dataLine = block
-      .split("\n")
-      .find((line) => line.startsWith("data:"))
-      ?.replace("data:", "")
-      .trim();
+    const lines = block.split("\n");
+    const event = lines.find((l) => l.startsWith("event:"))?.replace("event:", "").trim();
+    const dataLine = lines.find((l) => l.startsWith("data:"))?.replace("data:", "").trim();
     if (!event || !dataLine) return;
-
     const data = JSON.parse(dataLine);
-    if (event === "session") {
-      setActiveSessionId(data.session_id);
-    }
+    if (event === "session") setActiveSessionId(data.session_id);
     if (event === "citations") {
-      setMessages((current) =>
-        current.map((message) => (message.id === assistantId ? { ...message, citations: data } : message))
+      setMessages((prev) =>
+        prev.map((m) => (m.id === assistantId ? { ...m, citations: data } : m))
       );
     }
     if (event === "delta") {
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === assistantId ? { ...message, content: `${message.content}${data.text}` } : message
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId ? { ...m, content: `${m.content}${data.text}` } : m
+        )
+      );
+    }
+    if (event === "error") {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? { ...m, content: `Error: ${data.detail ?? "Something went wrong."}` }
+            : m
         )
       );
     }
   }
 
-  function copyMessage(content) {
-    navigator.clipboard?.writeText(content);
-  }
-
   if (!user) {
-    return authMode === "login" ? (
-      <Login onLogin={setUser} switchToRegister={() => setAuthMode("register")} />
-    ) : (
-      <Register onRegister={setUser} switchToLogin={() => setAuthMode("login")} />
+    return (
+      <AuthForm
+        mode={authMode}
+        onSuccess={setUser}
+        onSwitch={() => setAuthMode((m) => (m === "login" ? "register" : "login"))}
+      />
     );
   }
 
@@ -256,9 +244,15 @@ function App() {
     <div className="app-shell">
       <TopBar user={user} onLogout={() => setUser(null)} />
       <div className="workspace">
+        {/* Left sidebar */}
         <aside className="left-sidebar">
-          <button className="upload-button" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            {uploading ? <Loader2 className="spin" size={18} /> : <Plus size={18} />}
+          <button
+            className="upload-button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            aria-label={uploading ? "Indexing documents" : "Upload documents"}
+          >
+            {uploading ? <Loader2 className="spin" size={18} aria-hidden="true" /> : <Plus size={18} aria-hidden="true" />}
             {uploading ? "Indexing..." : "Upload Documents"}
           </button>
           <input
@@ -267,129 +261,171 @@ function App() {
             accept="application/pdf"
             multiple
             hidden
-            onChange={(event) => uploadFiles(event.target.files)}
+            aria-hidden="true"
+            onChange={(e) => uploadFiles(e.target.files)}
           />
 
           <section className="sidebar-section">
             <h2>Your Documents</h2>
-            <div className="doc-list">
-              {visibleDocuments.map((doc, index) => (
-                <DocumentItem key={doc.id ?? doc.filename} doc={doc} tone={documentTone(index)} />
-              ))}
-            </div>
+            {documents.length === 0 ? (
+              <p className="empty-hint">Upload a PDF to get started.</p>
+            ) : (
+              <div className="doc-list">
+                {documents.map((doc, i) => (
+                  <DocumentItem key={doc.id ?? doc.filename} doc={doc} tone={documentTone(i)} />
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="sidebar-section history-section">
             <h2>Chat History</h2>
-            <p className="section-kicker">Today</p>
-            <div className="history-list">
-              {(sessions.length ? sessions : mockSessions()).slice(0, 5).map((session, index) => (
-                <button
-                  key={session.id}
-                  className={`history-item ${session.id === activeSessionId || index === 0 ? "active" : ""}`}
-                  onClick={() => setActiveSessionId(session.id)}
-                >
-                  <span>{session.title}</span>
-                  <time>{index < 2 ? "10:45 AM" : index < 4 ? "Yesterday" : "2 days ago"}</time>
-                </button>
-              ))}
-            </div>
-            <button className="view-all">
-              View all chats <Zap size={16} />
-            </button>
+            {sessions.length === 0 ? (
+              <p className="empty-hint">No sessions yet.</p>
+            ) : (
+              <div className="history-list">
+                {sessions.slice(0, 8).map((session) => (
+                  <button
+                    key={session.id}
+                    className={`history-item ${session.id === activeSessionId ? "active" : ""}`}
+                    onClick={() => setActiveSessionId(session.id)}
+                  >
+                    <span>{session.title}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
         </aside>
 
+        {/* Chat column */}
         <main className="chat-column">
-          <div className="hero-copy">
-            <h1>How can I help you today?</h1>
-            <p>Ask questions about your documents, generate summaries, or explore concepts.</p>
-          </div>
+          {messages.length === 0 && (
+            <div className="hero-copy">
+              <h1>How can I help you today?</h1>
+              <p>Ask questions about your documents, generate summaries, or explore concepts.</p>
+            </div>
+          )}
 
-          <div className="message-stream" ref={scrollRef}>
-            {messages.map((message) => (
-              <ChatMessageView key={message.id} message={message} onCopy={copyMessage} />
+          <div className="message-stream" ref={scrollRef} aria-live="polite" aria-label="Chat messages">
+            {messages.map((msg) => (
+              <ChatMessageView key={msg.id} message={msg} />
             ))}
             {isStreaming && (
-              <div className="typing-row">
-                <Sparkles size={16} />
+              <div className="typing-row" aria-live="polite">
+                <Sparkles size={16} aria-hidden="true" />
                 <span>NeuroDocs is reading your sources...</span>
               </div>
             )}
           </div>
 
           <div className="composer">
+            <label htmlFor="chat-input" className="sr-only">
+              Ask a question
+            </label>
             <textarea
+              id="chat-input"
               value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
                   sendMessage();
                 }
               }}
-              placeholder="Ask follow-up questions..."
+              placeholder="Ask a question about your documents… (Shift+Enter for new line)"
               rows={2}
             />
             <div className="composer-actions">
-              <button type="button">
-                <Filter size={17} /> Filter
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Attach PDF"
+              >
+                <Paperclip size={17} aria-hidden="true" /> Attach
               </button>
-              <button type="button" onClick={() => fileInputRef.current?.click()}>
-                <Paperclip size={17} /> Attach
-              </button>
-              <button type="button" onClick={() => sendMessage("Create a mind map from my documents.")}>
-                <GitFork size={17} /> Mind Map
-              </button>
-              <button className="send-button" type="button" onClick={() => sendMessage()} disabled={isStreaming}>
-                {isStreaming ? <Loader2 className="spin" size={19} /> : <Send size={19} />}
+              <button
+                className="send-button"
+                type="button"
+                onClick={() => sendMessage()}
+                disabled={isStreaming || !input.trim()}
+                aria-label={isStreaming ? "Sending…" : "Send message"}
+              >
+                {isStreaming ? (
+                  <Loader2 className="spin" size={19} aria-hidden="true" />
+                ) : (
+                  <Send size={19} aria-hidden="true" />
+                )}
               </button>
             </div>
           </div>
         </main>
 
+        {/* Right panel */}
         <aside className="right-panel">
           <section className="insight-card sources-card">
-            <div className="tabs">
-              {["Sources", "Visualizations", "Tools"].map((tab) => (
-                <button key={tab} className={rightTab === tab ? "active" : ""} onClick={() => setRightTab(tab)}>
+            <div className="tabs" role="tablist" aria-label="Panel tabs">
+              {["Sources", "Quick Actions"].map((tab) => (
+                <button
+                  key={tab}
+                  role="tab"
+                  aria-selected={rightTab === tab}
+                  className={rightTab === tab ? "active" : ""}
+                  onClick={() => setRightTab(tab)}
+                >
                   {tab}
                 </button>
               ))}
             </div>
-            <div className="panel-body">
-              <h3>Top Sources</h3>
-              <div className="source-list">
-                {(latestCitations.length ? latestCitations : fallbackCitations()).slice(0, 4).map((source, index) => (
-                  <SourceItem key={`${source.label}-${index}`} source={source} tone={documentTone(index)} score={92 - index * 9} />
-                ))}
-              </div>
-              <button className="all-sources">
-                See all sources <Zap size={15} />
-              </button>
+            <div className="panel-body" role="tabpanel">
+              {rightTab === "Sources" && (
+                <>
+                  <h3>Top Sources</h3>
+                  {latestCitations.length === 0 ? (
+                    <p className="empty-hint">Sources will appear here after a response.</p>
+                  ) : (
+                    <div className="source-list">
+                      {latestCitations.slice(0, 5).map((source, i) => (
+                        <SourceItem
+                          key={`${source.label}-${i}`}
+                          source={source}
+                          tone={documentTone(i)}
+                          score={92 - i * 9}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+              {rightTab === "Quick Actions" && (
+                <>
+                  <h3>Quick Actions</h3>
+                  <div className="quick-grid">
+                    {Object.entries(QUICK_PROMPTS).map(([label, prompt], i) => (
+                      <button
+                        key={label}
+                        className={`quick-action tone-${documentTone(i + 2)}`}
+                        onClick={() => sendMessage(prompt)}
+                        disabled={isStreaming}
+                      >
+                        {quickIcon(label)}
+                        <span>{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           </section>
 
           <section className="insight-card mindmap-card">
             <div className="card-title-row">
               <h3>Mind Map</h3>
-              <button className="icon-button" aria-label="Expand mind map">
-                <Maximize2 size={16} />
+              <button className="icon-button" aria-label="Expand mind map" disabled title="Coming soon">
+                <Maximize2 size={16} aria-hidden="true" />
               </button>
             </div>
             <MindMap />
-          </section>
-
-          <section className="insight-card">
-            <h3>Quick Actions</h3>
-            <div className="quick-grid">
-              {Object.entries(quickPrompts).map(([label, prompt], index) => (
-                <button key={label} className={`quick-action tone-${documentTone(index + 2)}`} onClick={() => sendMessage(prompt)}>
-                  {quickIcon(label)}
-                  <span>{label}</span>
-                </button>
-              ))}
-            </div>
           </section>
         </aside>
       </div>
@@ -397,20 +433,21 @@ function App() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// TopBar
+// ---------------------------------------------------------------------------
 function TopBar({ user, onLogout }) {
-  const [darkMode, setDarkMode] = React.useState(false);
-  const [notifOpen, setNotifOpen] = React.useState(false);
-  const [userMenuOpen, setUserMenuOpen] = React.useState(false);
-  const notifRef = React.useRef(null);
-  const userMenuRef = React.useRef(null);
+  const [darkMode, setDarkMode] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const notifRef = useRef(null);
+  const userMenuRef = useRef(null);
 
-  // Toggle dark mode on body
-  React.useEffect(() => {
+  useEffect(() => {
     document.body.classList.toggle("dark-mode", darkMode);
   }, [darkMode]);
 
-  // Close dropdowns on outside click
-  React.useEffect(() => {
+  useEffect(() => {
     function handleClick(e) {
       if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false);
       if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setUserMenuOpen(false);
@@ -419,10 +456,12 @@ function TopBar({ user, onLogout }) {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  const userInitial = user?.email?.[0]?.toUpperCase() ?? "?";
+
   return (
     <header className="topbar">
       <div className="brand">
-        <div className="brand-mark">
+        <div className="brand-mark" aria-hidden="true">
           <BookOpen size={28} />
         </div>
         <div>
@@ -430,46 +469,57 @@ function TopBar({ user, onLogout }) {
           <span>Intelligent Document Assistant</span>
         </div>
       </div>
-      <label className="global-search">
-        <Search size={20} />
-        <input placeholder="Search your documents..." />
-        <kbd>⌘ K</kbd>
-      </label>
+
+      <div className="global-search" role="search">
+        <Search size={20} aria-hidden="true" />
+        <input
+          type="search"
+          placeholder="Search your documents…"
+          aria-label="Search documents"
+        />
+        <kbd aria-label="Keyboard shortcut Command K">⌘ K</kbd>
+      </div>
+
       <div className="top-actions">
         <button
           className={`icon-button theme-toggle ${darkMode ? "active" : ""}`}
           aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-          title={darkMode ? "Light mode" : "Dark mode"}
-          onClick={() => setDarkMode(v => !v)}
+          onClick={() => setDarkMode((v) => !v)}
         >
-          <Sun size={20} />
+          <Sun size={20} aria-hidden="true" />
         </button>
 
         <div className="topbar-dropdown-wrap" ref={notifRef}>
           <button
             className="icon-button notif-btn"
             aria-label="Notifications"
-            title="Notifications"
-            onClick={() => setNotifOpen(v => !v)}
+            aria-expanded={notifOpen}
+            onClick={() => setNotifOpen((v) => !v)}
           >
-            <Bell size={20} />
+            <Bell size={20} aria-hidden="true" />
             <span className="notif-dot" aria-hidden="true" />
           </button>
           {notifOpen && (
             <div className="topbar-dropdown notif-dropdown" role="dialog" aria-label="Notifications">
               <div className="dropdown-header">
                 <span>Notifications</span>
-                <button className="dropdown-clear" onClick={() => setNotifOpen(false)}>Mark all read</button>
+                <button className="dropdown-clear" onClick={() => setNotifOpen(false)}>
+                  Mark all read
+                </button>
               </div>
               <div className="notif-item unread">
-                <div className="notif-icon tone-violet"><Sparkles size={15} /></div>
+                <div className="notif-icon tone-violet" aria-hidden="true">
+                  <Sparkles size={15} />
+                </div>
                 <div>
                   <strong>Document indexed</strong>
                   <span>Your PDF is ready to query</span>
                 </div>
               </div>
               <div className="notif-item">
-                <div className="notif-icon tone-blue"><BookOpen size={15} /></div>
+                <div className="notif-icon tone-blue" aria-hidden="true">
+                  <BookOpen size={15} />
+                </div>
                 <div>
                   <strong>New feature</strong>
                   <span>Mind maps now support export</span>
@@ -480,97 +530,121 @@ function TopBar({ user, onLogout }) {
           )}
         </div>
 
-        {user && (
-          <div className="topbar-dropdown-wrap" ref={userMenuRef}>
-            <button
-              className="avatar-btn"
-              onClick={() => setUserMenuOpen(v => !v)}
-              aria-label="User menu"
-              title={user.email}
-            >
-              <div className="avatar">{user.email[0].toUpperCase()}</div>
-            </button>
-            {userMenuOpen && (
-              <div className="topbar-dropdown user-dropdown" role="dialog" aria-label="User menu">
-                <div className="user-dropdown-profile">
-                  <div className="avatar avatar-lg">{user.email[0].toUpperCase()}</div>
-                  <div>
-                    <strong>{user.email}</strong>
-                    <span>Free plan</span>
-                  </div>
+        <div className="topbar-dropdown-wrap" ref={userMenuRef}>
+          <button
+            className="avatar-btn"
+            onClick={() => setUserMenuOpen((v) => !v)}
+            aria-label="User menu"
+            aria-expanded={userMenuOpen}
+            title={user?.email}
+          >
+            <div className="avatar" aria-hidden="true">
+              {userInitial}
+            </div>
+          </button>
+          {userMenuOpen && (
+            <div className="topbar-dropdown user-dropdown" role="dialog" aria-label="User menu">
+              <div className="user-dropdown-profile">
+                <div className="avatar avatar-lg" aria-hidden="true">
+                  {userInitial}
                 </div>
-                <div className="dropdown-divider" />
-                <button className="dropdown-item" onClick={() => setUserMenuOpen(false)}>
-                  <BookOpen size={16} /> My Documents
-                </button>
-                <button className="dropdown-item" onClick={() => setUserMenuOpen(false)}>
-                  <Sparkles size={16} /> Upgrade Plan
-                </button>
-                <div className="dropdown-divider" />
-                <button className="dropdown-item danger" onClick={() => { setUserMenuOpen(false); onLogout(); }}>
-                  <ChevronDown size={16} style={{ transform: "rotate(-90deg)" }} /> Sign Out
-                </button>
+                <div>
+                  <strong>{user?.email}</strong>
+                  <span>Free plan</span>
+                </div>
               </div>
-            )}
-          </div>
-        )}
+              <div className="dropdown-divider" />
+              <button
+                className="dropdown-item danger"
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  onLogout();
+                }}
+              >
+                <ChevronDown size={16} style={{ transform: "rotate(-90deg)" }} aria-hidden="true" />
+                Sign Out
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );
 }
 
+// ---------------------------------------------------------------------------
+// DocumentItem
+// ---------------------------------------------------------------------------
 function DocumentItem({ doc, tone }) {
   return (
     <div className="doc-item">
-      <div className={`doc-icon tone-${tone}`}>
+      <div className={`doc-icon tone-${tone}`} aria-hidden="true">
         <FileText size={19} />
       </div>
       <div className="doc-meta">
-        <strong>{doc.filename}</strong>
+        <strong title={doc.filename}>{doc.filename}</strong>
         <span>
-          PDF · {formatBytes(doc.size_bytes)} {doc.page_count ? `· ${doc.page_count} pages` : ""}
+          PDF · {formatBytes(doc.size_bytes)}
+          {doc.page_count ? ` · ${doc.page_count} pages` : ""}
         </span>
       </div>
-      <button className="icon-button compact" aria-label="Document menu">
-        <MoreVertical size={17} />
+      <button className="icon-button compact" aria-label={`Options for ${doc.filename}`}>
+        <MoreVertical size={17} aria-hidden="true" />
       </button>
     </div>
   );
 }
 
-function ChatMessageView({ message, onCopy }) {
+// ---------------------------------------------------------------------------
+// ChatMessageView
+// ---------------------------------------------------------------------------
+function ChatMessageView({ message }) {
   const isUser = message.role === "user";
-  // Mermaid rendering
-  const [mermaidSvg, setMermaidSvg] = React.useState(null);
-  React.useEffect(() => {
-    if (message.content && message.content.includes('```mermaid')) {
-      const match = message.content.match(/```mermaid\n([\s\S]*?)```/);
-      if (match) {
-        mermaid.render(`mermaid-${message.id}`, match[1])
-          .then(({ svg }) => setMermaidSvg(svg))
-          .catch(() => setMermaidSvg(null));
-      }
+  const [mermaidSvg, setMermaidSvg] = useState(null);
+
+  useEffect(() => {
+    const match = message.content?.match(/```mermaid\n([\s\S]*?)```/);
+    if (match) {
+      mermaid
+        .render(`mermaid-${message.id}`, match[1])
+        .then(({ svg }) => setMermaidSvg(svg))
+        .catch(() => setMermaidSvg(null));
     } else {
       setMermaidSvg(null);
     }
   }, [message.content, message.id]);
 
+  // Replace mermaid block in content with a placeholder so surrounding text still renders
+  const contentWithoutMermaid = mermaidSvg
+    ? message.content.replace(/```mermaid\n[\s\S]*?```/, "")
+    : message.content;
+
   return (
-    <article className={`message-row ${isUser ? "user-row" : "assistant-row"}`}>
+    <article
+      className={`message-row ${isUser ? "user-row" : "assistant-row"}`}
+      aria-label={isUser ? "Your message" : "Assistant response"}
+    >
       {!isUser && (
-        <div className="assistant-badge">
+        <div className="assistant-badge" aria-hidden="true">
           <Sparkles size={18} />
         </div>
       )}
       <div className={`message-bubble ${isUser ? "user-bubble" : "assistant-bubble"}`}>
         {message.content ? (
-          mermaidSvg ? (
-            <div dangerouslySetInnerHTML={{ __html: mermaidSvg }} />
-          ) : (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-          )
+          <>
+            {mermaidSvg && (
+              <div
+                className="mermaid-output"
+                dangerouslySetInnerHTML={{ __html: mermaidSvg }}
+                aria-label="Mermaid diagram"
+              />
+            )}
+            {contentWithoutMermaid.trim() && (
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{contentWithoutMermaid}</ReactMarkdown>
+            )}
+          </>
         ) : (
-          <div className="message-skeleton">
+          <div className="message-skeleton" aria-label="Loading response">
             <span />
             <span />
             <span />
@@ -578,119 +652,77 @@ function ChatMessageView({ message, onCopy }) {
         )}
         {!isUser && message.content && (
           <footer className="message-footer">
-            <span>Sources: {message.citations?.length ?? 0}</span>
-            <button aria-label="Helpful">
-              <ThumbsUp size={15} />
+            {message.citations?.length > 0 && (
+              <span>Sources: {message.citations.length}</span>
+            )}
+            <button
+              aria-label="Mark as helpful"
+              onClick={() => { }}
+            >
+              <ThumbsUp size={15} aria-hidden="true" />
             </button>
-            <button aria-label="Not helpful">
-              <ThumbsDown size={15} />
+            <button
+              aria-label="Mark as not helpful"
+              onClick={() => { }}
+            >
+              <ThumbsDown size={15} aria-hidden="true" />
             </button>
-            <button className="copy-button" onClick={() => onCopy(message.content)}>
-              <Copy size={15} /> Copy
+            <button
+              className="copy-button"
+              onClick={() => navigator.clipboard?.writeText(message.content)}
+              aria-label="Copy response"
+            >
+              <Copy size={15} aria-hidden="true" /> Copy
             </button>
           </footer>
         )}
       </div>
-      {isUser && <div className="user-badge">A</div>}
+      {isUser && (
+        <div className="user-badge" aria-hidden="true">
+          {/* filled by CSS / parent context — just a visual indicator */}
+          U
+        </div>
+      )}
     </article>
   );
 }
 
+// ---------------------------------------------------------------------------
+// SourceItem
+// ---------------------------------------------------------------------------
 function SourceItem({ source, tone, score }) {
   return (
     <div className="source-item">
-      <div className={`doc-icon tone-${tone}`}>
+      <div className={`doc-icon tone-${tone}`} aria-hidden="true">
         <FileText size={18} />
       </div>
       <div>
         <strong>{source.source_document ?? source.label?.split(" (")[0]}</strong>
-        <span>Page {source.page_number ?? "-"}</span>
+        <span>Page {source.page_number ?? "—"}</span>
       </div>
-      <em>{score}%</em>
+      <em aria-label={`Relevance score ${score}%`}>{score}%</em>
     </div>
   );
 }
 
+// ---------------------------------------------------------------------------
+// MindMap — static SVG placeholder, clearly labelled as such
+// ---------------------------------------------------------------------------
 function MindMap() {
   return (
     <div className="mindmap">
-      <svg viewBox="0 0 520 270" role="img" aria-label="Concept mind map">
-        <path d="M130 135 C210 58 224 42 292 42" className="line blue" />
-        <path d="M130 135 C220 94 230 86 294 86" className="line purple" />
-        <path d="M130 135 C224 136 245 136 306 136" className="line red" />
-        <path d="M130 135 C224 198 246 214 310 218" className="line green" />
-        <path d="M370 136 C398 104 420 98 468 100" className="line red" />
-        <path d="M370 136 C400 132 420 130 468 130" className="line red" />
-        <path d="M370 136 C400 166 420 170 468 170" className="line red" />
-        <path d="M376 218 C408 198 424 194 468 194" className="line green" />
-        <path d="M376 218 C410 220 426 220 468 220" className="line green" />
-        <path d="M376 218 C408 242 424 244 468 244" className="line green" />
-        <MindNode x={42} y={118} w={88} h={34} text="Deadlock" tone="root" />
-        <MindNode x={292} y={26} w={88} h={28} text="Definition" tone="blue" />
-        <MindNode x={294} y={72} w={78} h={28} text="Example" tone="purple" />
-        <MindNode x={306} y={120} w={92} h={30} text="Conditions" tone="red" />
-        <MindNode x={310} y={202} w={96} h={30} text="Prevention" tone="green" />
-        <MiniNode x={454} y={88} text="Mutual Exclusion" />
-        <MiniNode x={458} y={118} text="Hold and Wait" />
-        <MiniNode x={460} y={158} text="Circular Wait" />
-        <MiniNode x={452} y={182} text="Break Conditions" green />
-        <MiniNode x={452} y={208} text="Resource Ordering" green />
-        <MiniNode x={456} y={232} text="Avoid Hold and Wait" green />
-      </svg>
-      <div className="zoom-stack">
-        <button>+</button>
-        <button>-</button>
+      <p className="empty-hint mindmap-hint">
+        Ask a question to generate a mind map from your documents.
+      </p>
+      <div className="zoom-stack" aria-hidden="true">
+        <button disabled aria-label="Zoom in">+</button>
+        <button disabled aria-label="Zoom out">-</button>
       </div>
     </div>
   );
 }
 
-function MindNode({ x, y, w, h, text, tone }) {
-  return (
-    <g>
-      <rect x={x} y={y} width={w} height={h} rx="8" className={`mind-node ${tone}`} />
-      <text x={x + w / 2} y={y + h / 2 + 4} textAnchor="middle">
-        {text}
-      </text>
-    </g>
-  );
-}
-
-function MiniNode({ x, y, text, green = false }) {
-  return (
-    <g>
-      <rect x={x} y={y} width="92" height="20" rx="7" className={green ? "mini-node green" : "mini-node"} />
-      <text x={x + 46} y={y + 13} textAnchor="middle">
-        {text}
-      </text>
-    </g>
-  );
-}
-
-function quickIcon(label) {
-  const props = { size: 17 };
-  if (label === "Summarize") return <MessageSquareText {...props} />;
-  if (label === "Generate Quiz") return <GraduationCap {...props} />;
-  if (label === "Create Flashcards") return <BrainCircuit {...props} />;
-  return <GitCompare {...props} />;
-}
-
-function fallbackCitations() {
-  return [
-    { label: "Operating Systems Notes.pdf (p. 45)", source_document: "Operating Systems Notes.pdf", page_number: 45 },
-    { label: "Operating Systems Notes.pdf (p. 47)", source_document: "Operating Systems Notes.pdf", page_number: 47 },
-    { label: "Computer Networks.pdf (p. 103)", source_document: "Computer Networks.pdf", page_number: 103 }
-  ];
-}
-
-function mockSessions() {
-  return [
-    { id: "mock-1", title: "Explain deadlock in OS" },
-    { id: "mock-2", title: "Compare SQL vs NoSQL" },
-    { id: "mock-3", title: "TCP handshake process" },
-    { id: "mock-4", title: "Normalization in DBMS" },
-    { id: "mock-5", title: "Types of Machine Learning" }
-  ];
-}
-
+// ---------------------------------------------------------------------------
+// Bootstrap
+// ---------------------------------------------------------------------------
 createRoot(document.getElementById("root")).render(<App />);

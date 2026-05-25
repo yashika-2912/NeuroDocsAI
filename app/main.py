@@ -184,12 +184,14 @@ def stream_chat(request: ChatRequest) -> StreamingResponse:
         history = session.messages.copy()
         chat_store.append_message(session.id, ChatMessage(role="user", content=request.message))
 
+        # Acknowledge the session immediately so the client isn't waiting blind
+        yield f"event: session\ndata: {json.dumps({'session_id': session.id})}\n\n"
+
         retrieved_chunks = retrieve_relevant_chunks(query=request.message, top_k=request.top_k)
         citations = [chunk.citation for chunk in retrieved_chunks]
         llm = OpenAIChatService()
         assistant_parts: list[str] = []
 
-        yield f"event: session\ndata: {json.dumps({'session_id': session.id})}\n\n"
         yield (
             "event: citations\n"
             f"data: {json.dumps([citation.model_dump(mode='json') for citation in citations])}\n\n"
@@ -213,6 +215,20 @@ def stream_chat(request: ChatRequest) -> StreamingResponse:
             }
             yield f"event: done\ndata: {json.dumps(done)}\n\n"
         except Exception as exc:
-            yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
+            # If we have partial content already streamed, save it.
+            # Otherwise fall back to the local retrieval answer so the UI always fills in.
+            if assistant_parts:
+                assistant_text = "".join(assistant_parts)
+            else:
+                from app.services.llm import fallback_answer
+                assistant_text = fallback_answer(request.message, retrieved_chunks)
+                for word in assistant_text.split(" "):
+                    yield f"event: delta\ndata: {json.dumps({'text': word + ' '})}\n\n"
+
+            chat_store.append_message(
+                session.id,
+                ChatMessage(role="assistant", content=assistant_text, citations=citations),
+            )
+            yield f"event: done\ndata: {json.dumps({'session_id': session.id, 'used_fallback': True})}\n\n"
 
     return StreamingResponse(events(), media_type="text/event-stream")

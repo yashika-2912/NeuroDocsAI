@@ -7,19 +7,28 @@ from app.models import ChatMessage, ChatSession
 
 
 class ChatSessionStore:
+    """
+    File-backed session store with an in-memory cache to avoid redundant
+    disk reads/writes within a single request lifecycle.
+    """
+
     def __init__(self, path: Path) -> None:
         self.path = path
+        self._cache: list[ChatSession] | None = None
 
     def _read(self) -> list[ChatSession]:
+        if self._cache is not None:
+            return self._cache
         if not self.path.exists():
-            return []
-
+            self._cache = []
+            return self._cache
         with self.path.open("r", encoding="utf-8") as handle:
             raw = json.load(handle)
-
-        return [ChatSession.model_validate(item) for item in raw]
+        self._cache = [ChatSession.model_validate(item) for item in raw]
+        return self._cache
 
     def _write(self, sessions: list[ChatSession]) -> None:
+        self._cache = sessions
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("w", encoding="utf-8") as handle:
             json.dump(
@@ -29,8 +38,13 @@ class ChatSessionStore:
                 indent=2,
             )
 
+    def _invalidate(self) -> None:
+        """Force a fresh read from disk on the next access."""
+        self._cache = None
+
     def list_sessions(self) -> list[ChatSession]:
-        return sorted(self._read(), key=lambda session: session.updated_at, reverse=True)
+        self._invalidate()
+        return sorted(self._read(), key=lambda s: s.updated_at, reverse=True)
 
     def get_session(self, session_id: str) -> ChatSession | None:
         for session in self._read():

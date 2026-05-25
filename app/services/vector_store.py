@@ -72,15 +72,20 @@ class LocalJsonVectorBackend:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.embedding_model = HashEmbeddingModel()
+        self._rows_cache: list[dict] | None = None
 
     def _read(self) -> list[dict]:
+        if self._rows_cache is not None:
+            return self._rows_cache
         if not self.path.exists():
-            return []
-
+            self._rows_cache = []
+            return self._rows_cache
         with self.path.open("r", encoding="utf-8") as handle:
-            return json.load(handle)
+            self._rows_cache = json.load(handle)
+        return self._rows_cache
 
     def _write(self, rows: list[dict]) -> None:
+        self._rows_cache = rows
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("w", encoding="utf-8") as handle:
             json.dump(rows, handle, ensure_ascii=True, indent=2)
@@ -108,19 +113,20 @@ class LocalJsonVectorBackend:
 
     def search(self, query: str, top_k: int) -> list[dict]:
         query_embedding = self.embedding_model.encode_one(query)
-        ranked = sorted(
-            self._read(),
-            key=lambda row: cosine_distance(query_embedding, row["embedding"]),
+        rows = self._read()
+        # Compute distances once, sort, slice — avoids double-computing per row
+        scored = sorted(
+            ((cosine_distance(query_embedding, row["embedding"]), row) for row in rows),
+            key=lambda pair: pair[0],
         )
-
         return [
             {
                 "chunk_id": row["id"],
                 "text": row["document"],
                 "metadata": row["metadata"],
-                "distance": cosine_distance(query_embedding, row["embedding"]),
+                "distance": dist,
             }
-            for row in ranked[:top_k]
+            for dist, row in scored[:top_k]
         ]
 
     def count(self) -> int:

@@ -312,29 +312,29 @@
   text-decoration: underline;
 }
 
-/* Legacy .auth-form kept for safety */
-.auth-form {
-  max-width: 340px;
-  margin: 80px auto;
-  padding: 32px 28px 24px;
-  background: #fff;
-  border: 1px solid #e4e8f4;
-  border-radius: 10px;
-  box-shadow: 0 8px 32px rgba(43, 55, 90, 0.08);
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+/* Screen-reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-.auth-form .error {
-  color: #ff4d5e;
-  background: #fff0f2;
-  border: 1px solid #ffd6db;
-  border-radius: 7px;
-  padding: 8px 10px;
-  margin-top: 4px;
+/* Empty state hint */
+.empty-hint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #9aa3b8;
+}
+
+.mindmap-hint {
+  padding: 24px 0 8px;
   text-align: center;
-  font-size: 14px;
 }
 
 /* ── TopBar dropdown styles ── */
@@ -1058,7 +1058,7 @@ button {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   border-bottom: 1px solid #e6ebf4;
 }
 
@@ -1244,9 +1244,17 @@ button {
 }
 
 @keyframes shimmer {
-  to {
+  0% {
+    background-position: -240px 0;
+  }
+
+  100% {
     background-position: 240px 0;
   }
+}
+
+.message-skeleton span {
+  background-size: 480px 100%;
 }
 
 @media (max-width: 1220px) {
