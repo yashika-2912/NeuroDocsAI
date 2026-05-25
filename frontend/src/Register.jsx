@@ -1,4 +1,6 @@
+
 import React, { useState } from "react";
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 export default function Register({ onRegister, switchToLogin }) {
     const [email, setEmail] = useState("");
@@ -9,7 +11,7 @@ export default function Register({ onRegister, switchToLogin }) {
         e.preventDefault();
         setError("");
         try {
-            const response = await fetch("/api/auth/register", {
+            const response = await fetch(`${API_BASE}/api/auth/register`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email, password })
