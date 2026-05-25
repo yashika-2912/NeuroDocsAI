@@ -398,6 +398,27 @@ function App() {
 }
 
 function TopBar({ user, onLogout }) {
+  const [darkMode, setDarkMode] = React.useState(false);
+  const [notifOpen, setNotifOpen] = React.useState(false);
+  const [userMenuOpen, setUserMenuOpen] = React.useState(false);
+  const notifRef = React.useRef(null);
+  const userMenuRef = React.useRef(null);
+
+  // Toggle dark mode on body
+  React.useEffect(() => {
+    document.body.classList.toggle("dark-mode", darkMode);
+  }, [darkMode]);
+
+  // Close dropdowns on outside click
+  React.useEffect(() => {
+    function handleClick(e) {
+      if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false);
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setUserMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
   return (
     <header className="topbar">
       <div className="brand">
@@ -415,21 +436,84 @@ function TopBar({ user, onLogout }) {
         <kbd>⌘ K</kbd>
       </label>
       <div className="top-actions">
-        <button className="icon-button" aria-label="Theme">
+        <button
+          className={`icon-button theme-toggle ${darkMode ? "active" : ""}`}
+          aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+          title={darkMode ? "Light mode" : "Dark mode"}
+          onClick={() => setDarkMode(v => !v)}
+        >
           <Sun size={20} />
         </button>
-        <button className="icon-button" aria-label="Notifications">
-          <Bell size={20} />
-        </button>
-        {user ? (
-          <>
-            <div className="avatar">{user.email[0].toUpperCase()}</div>
-            <strong>{user.email}</strong>
-            <button className="icon-button" onClick={onLogout} title="Logout">
-              <ChevronDown size={18} />
+
+        <div className="topbar-dropdown-wrap" ref={notifRef}>
+          <button
+            className="icon-button notif-btn"
+            aria-label="Notifications"
+            title="Notifications"
+            onClick={() => setNotifOpen(v => !v)}
+          >
+            <Bell size={20} />
+            <span className="notif-dot" aria-hidden="true" />
+          </button>
+          {notifOpen && (
+            <div className="topbar-dropdown notif-dropdown" role="dialog" aria-label="Notifications">
+              <div className="dropdown-header">
+                <span>Notifications</span>
+                <button className="dropdown-clear" onClick={() => setNotifOpen(false)}>Mark all read</button>
+              </div>
+              <div className="notif-item unread">
+                <div className="notif-icon tone-violet"><Sparkles size={15} /></div>
+                <div>
+                  <strong>Document indexed</strong>
+                  <span>Your PDF is ready to query</span>
+                </div>
+              </div>
+              <div className="notif-item">
+                <div className="notif-icon tone-blue"><BookOpen size={15} /></div>
+                <div>
+                  <strong>New feature</strong>
+                  <span>Mind maps now support export</span>
+                </div>
+              </div>
+              <div className="notif-empty-hint">You're all caught up</div>
+            </div>
+          )}
+        </div>
+
+        {user && (
+          <div className="topbar-dropdown-wrap" ref={userMenuRef}>
+            <button
+              className="avatar-btn"
+              onClick={() => setUserMenuOpen(v => !v)}
+              aria-label="User menu"
+              title={user.email}
+            >
+              <div className="avatar">{user.email[0].toUpperCase()}</div>
             </button>
-          </>
-        ) : null}
+            {userMenuOpen && (
+              <div className="topbar-dropdown user-dropdown" role="dialog" aria-label="User menu">
+                <div className="user-dropdown-profile">
+                  <div className="avatar avatar-lg">{user.email[0].toUpperCase()}</div>
+                  <div>
+                    <strong>{user.email}</strong>
+                    <span>Free plan</span>
+                  </div>
+                </div>
+                <div className="dropdown-divider" />
+                <button className="dropdown-item" onClick={() => setUserMenuOpen(false)}>
+                  <BookOpen size={16} /> My Documents
+                </button>
+                <button className="dropdown-item" onClick={() => setUserMenuOpen(false)}>
+                  <Sparkles size={16} /> Upgrade Plan
+                </button>
+                <div className="dropdown-divider" />
+                <button className="dropdown-item danger" onClick={() => { setUserMenuOpen(false); onLogout(); }}>
+                  <ChevronDown size={16} style={{ transform: "rotate(-90deg)" }} /> Sign Out
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </header>
   );
