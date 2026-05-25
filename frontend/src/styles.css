@@ -11,22 +11,26 @@
   flex-direction: column;
   gap: 18px;
 }
+
 .auth-form h2 {
   margin: 0 0 10px;
   font-size: 22px;
   text-align: center;
 }
+
 .auth-form form {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
+
 .auth-form input {
   padding: 10px 12px;
   border: 1px solid #dfe4ef;
   border-radius: 7px;
   font-size: 15px;
 }
+
 .auth-form button[type="submit"] {
   background: linear-gradient(135deg, #725df4, #5c45e9);
   color: #fff;
@@ -38,6 +42,7 @@
   margin-top: 6px;
   cursor: pointer;
 }
+
 .auth-form .error {
   color: #ff4d5e;
   background: #fff0f2;
@@ -48,12 +53,14 @@
   text-align: center;
   font-size: 14px;
 }
+
 .auth-form p {
   text-align: center;
   margin: 0;
   color: #64708a;
   font-size: 14px;
 }
+
 .auth-form p button {
   background: none;
   border: none;
@@ -63,6 +70,7 @@
   padding: 0;
   font-size: 14px;
 }
+
 :root {
   color: #121a31;
   background: #f8faff;
@@ -618,7 +626,7 @@ button {
 }
 
 .panel-body,
-.insight-card > h3,
+.insight-card>h3,
 .mindmap-card {
   padding: 20px 22px;
 }
@@ -724,7 +732,7 @@ button {
   font-weight: 650;
 }
 
-.mindmap .mini-node + text,
+.mindmap .mini-node+text,
 .mindmap text:nth-of-type(n + 5) {
   font-size: 10px;
 }
