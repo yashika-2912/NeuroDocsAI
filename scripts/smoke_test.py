@@ -67,6 +67,7 @@ def main() -> None:
     assert chat_body["session_id"], chat_body
     assert chat_body["answer"], chat_body
     assert chat_body["citations"], chat_body
+    assert chat_body["response"]["type"] in {"text", "summary", "table", "mermaid", "quiz"}
 
     follow_up = client.post(
         "/api/chat",
@@ -79,8 +80,19 @@ def main() -> None:
     assert follow_up.status_code == 200, follow_up.text
     assert follow_up.json()["session_id"] == chat_body["session_id"]
 
+    table = client.post("/api/chat", json={"message": "Compare the documents in a table.", "top_k": 2})
+    assert table.status_code == 200, table.text
+    assert table.json()["response"]["type"] == "table"
+    assert "| Source |" in table.json()["response"]["content"]
+
+    diagram = client.post("/api/chat", json={"message": "Create a mind map.", "top_k": 2})
+    assert diagram.status_code == 200, diagram.text
+    assert diagram.json()["response"]["type"] == "mermaid"
+    assert "```mermaid" in diagram.json()["response"]["content"]
+
     stream = client.post("/api/chat/stream", json={"message": "Stream a short answer.", "top_k": 1})
     assert stream.status_code == 200, stream.text
+    assert "event: response_type" in stream.text
     assert "event: delta" in stream.text
     assert "event: done" in stream.text
 

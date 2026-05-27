@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -61,6 +61,8 @@ class ChatMessage(BaseModel):
     content: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
     citations: list[Citation] = Field(default_factory=list)
+    response_type: Literal["text", "table", "mermaid", "quiz", "summary"] = "text"
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChatSession(BaseModel):
@@ -85,6 +87,14 @@ class ChatResponse(BaseModel):
     retrieved_chunks: list[SearchResult]
     model: str
     used_fallback: bool
+    response: "StructuredResponse"
+
+
+class StructuredResponse(BaseModel):
+    type: Literal["text", "table", "mermaid", "quiz", "summary"]
+    content: str
+    citations: list[Citation] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class HealthResponse(BaseModel):

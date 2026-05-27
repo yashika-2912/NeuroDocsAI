@@ -22,8 +22,8 @@ from app.models import (
 from app.services.chat_store import ChatSessionStore
 from app.services.chunker import chunk_pages
 from app.services.document_store import DocumentStore
-from app.services.llm import OpenAIChatService
 from app.services.pdf_extractor import extract_pdf_text
+from app.services.response_formatter import format_structured_response
 from app.services.retrieval import retrieve_relevant_chunks
 from app.services.vector_store import get_vector_store
 from app.auth import router as auth_router
@@ -158,22 +158,27 @@ def chat(request: ChatRequest) -> ChatResponse:
     chat_store.append_message(session.id, ChatMessage(role="user", content=request.message))
 
     retrieved_chunks = retrieve_relevant_chunks(query=request.message, top_k=request.top_k)
-    llm = OpenAIChatService()
-    result = llm.complete(request.message, history, retrieved_chunks)
-    citations = [chunk.citation for chunk in retrieved_chunks]
+    structured, model, used_fallback = format_structured_response(request.message, history, retrieved_chunks)
     assistant_message = chat_store.append_message(
         session.id,
-        ChatMessage(role="assistant", content=result.text, citations=citations),
+        ChatMessage(
+            role="assistant",
+            content=structured.content,
+            citations=structured.citations,
+            response_type=structured.type,
+            metadata=structured.metadata,
+        ),
     )
 
     return ChatResponse(
         session_id=session.id,
         message_id=assistant_message.id,
-        answer=result.text,
-        citations=citations,
+        answer=structured.content,
+        citations=structured.citations,
         retrieved_chunks=retrieved_chunks,
-        model=result.model,
-        used_fallback=result.used_fallback,
+        model=model,
+        used_fallback=used_fallback,
+        response=structured,
     )
 
 
@@ -188,30 +193,37 @@ def stream_chat(request: ChatRequest) -> StreamingResponse:
         yield f"event: session\ndata: {json.dumps({'session_id': session.id})}\n\n"
 
         retrieved_chunks = retrieve_relevant_chunks(query=request.message, top_k=request.top_k)
-        citations = [chunk.citation for chunk in retrieved_chunks]
-        llm = OpenAIChatService()
+        structured, model, used_fallback = format_structured_response(request.message, history, retrieved_chunks)
         assistant_parts: list[str] = []
 
+        yield f"event: response_type\ndata: {json.dumps({'type': structured.type, 'metadata': structured.metadata})}\n\n"
         yield (
             "event: citations\n"
-            f"data: {json.dumps([citation.model_dump(mode='json') for citation in citations])}\n\n"
+            f"data: {json.dumps([citation.model_dump(mode='json') for citation in structured.citations])}\n\n"
         )
 
         try:
-            for delta in llm.stream(request.message, history, retrieved_chunks):
+            for delta in _stream_content(structured.content, structured.type):
                 assistant_parts.append(delta)
                 yield f"event: delta\ndata: {json.dumps({'text': delta})}\n\n"
 
             assistant_text = "".join(assistant_parts)
             assistant_message = chat_store.append_message(
                 session.id,
-                ChatMessage(role="assistant", content=assistant_text, citations=citations),
+                ChatMessage(
+                    role="assistant",
+                    content=assistant_text,
+                    citations=structured.citations,
+                    response_type=structured.type,
+                    metadata=structured.metadata,
+                ),
             )
             done = {
                 "session_id": session.id,
                 "message_id": assistant_message.id,
-                "model": llm.model,
-                "used_fallback": llm.client is None,
+                "model": model,
+                "used_fallback": used_fallback,
+                "response": structured.model_dump(mode="json"),
             }
             yield f"event: done\ndata: {json.dumps(done)}\n\n"
         except Exception as exc:
@@ -227,8 +239,18 @@ def stream_chat(request: ChatRequest) -> StreamingResponse:
 
             chat_store.append_message(
                 session.id,
-                ChatMessage(role="assistant", content=assistant_text, citations=citations),
+                ChatMessage(role="assistant", content=assistant_text, citations=structured.citations),
             )
             yield f"event: done\ndata: {json.dumps({'session_id': session.id, 'used_fallback': True})}\n\n"
 
     return StreamingResponse(events(), media_type="text/event-stream")
+
+
+def _stream_content(content: str, response_type: str):
+    if response_type == "table":
+        for line in content.splitlines(True):
+            yield line
+        return
+
+    for word in content.split(" "):
+        yield f"{word} "

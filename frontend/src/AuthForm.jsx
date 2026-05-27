@@ -34,10 +34,6 @@ export default function AuthForm({ mode, onSuccess, onSwitch }) {
         }
     }
 
-    function handleGoogleAuth() {
-        window.location.href = `${API_BASE}/api/auth/google`;
-    }
-
     return (
         <div className="auth-page">
             <div className="auth-orb auth-orb-1" aria-hidden="true" />
@@ -64,9 +60,9 @@ export default function AuthForm({ mode, onSuccess, onSwitch }) {
                     </p>
                 </div>
 
-                <button className="google-btn" type="button" onClick={handleGoogleAuth}>
+                <button className="google-btn" type="button" disabled title="Coming soon">
                     <GoogleIcon />
-                    Continue with Google
+                    Continue with Google · Coming Soon
                 </button>
 
                 <div className="auth-divider">

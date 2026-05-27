@@ -88,6 +88,7 @@ function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [rightTab, setRightTab] = useState("Sources");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const fileInputRef = useRef(null);
   const scrollRef = useRef(null);
@@ -96,6 +97,11 @@ function App() {
     const msg = [...messages].reverse().find((m) => m.citations?.length);
     return msg?.citations ?? [];
   }, [messages]);
+  const filteredDocuments = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return documents;
+    return documents.filter((doc) => doc.filename.toLowerCase().includes(query));
+  }, [documents, searchQuery]);
 
   useEffect(() => {
     if (user) {
@@ -212,6 +218,15 @@ function App() {
         prev.map((m) => (m.id === assistantId ? { ...m, citations: data } : m))
       );
     }
+    if (event === "response_type") {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? { ...m, response_type: data.type ?? "text", metadata: data.metadata ?? {} }
+            : m
+        )
+      );
+    }
     if (event === "delta") {
       setMessages((prev) =>
         prev.map((m) =>
@@ -224,6 +239,20 @@ function App() {
         prev.map((m) =>
           m.id === assistantId
             ? { ...m, content: `Error: ${data.detail ?? "Something went wrong."}` }
+            : m
+        )
+      );
+    }
+    if (event === "done" && data.response) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? {
+                ...m,
+                response_type: data.response.type ?? m.response_type ?? "text",
+                metadata: data.response.metadata ?? m.metadata ?? {},
+                citations: data.response.citations ?? m.citations ?? [],
+              }
             : m
         )
       );
@@ -242,7 +271,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <TopBar user={user} onLogout={() => setUser(null)} />
+      <TopBar user={user} onLogout={() => setUser(null)} searchQuery={searchQuery} onSearch={setSearchQuery} />
       <div className="workspace">
         {/* Left sidebar */}
         <aside className="left-sidebar">
@@ -269,9 +298,11 @@ function App() {
             <h2>Your Documents</h2>
             {documents.length === 0 ? (
               <p className="empty-hint">Upload a PDF to get started.</p>
+            ) : filteredDocuments.length === 0 ? (
+              <p className="empty-hint">No documents match your search.</p>
             ) : (
               <div className="doc-list">
-                {documents.map((doc, i) => (
+                {filteredDocuments.map((doc, i) => (
                   <DocumentItem key={doc.id ?? doc.filename} doc={doc} tone={documentTone(i)} />
                 ))}
               </div>
@@ -417,16 +448,6 @@ function App() {
               )}
             </div>
           </section>
-
-          <section className="insight-card mindmap-card">
-            <div className="card-title-row">
-              <h3>Mind Map</h3>
-              <button className="icon-button" aria-label="Expand mind map" disabled title="Coming soon">
-                <Maximize2 size={16} aria-hidden="true" />
-              </button>
-            </div>
-            <MindMap />
-          </section>
         </aside>
       </div>
     </div>
@@ -436,12 +457,13 @@ function App() {
 // ---------------------------------------------------------------------------
 // TopBar
 // ---------------------------------------------------------------------------
-function TopBar({ user, onLogout }) {
+function TopBar({ user, onLogout, searchQuery, onSearch }) {
   const [darkMode, setDarkMode] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const notifRef = useRef(null);
   const userMenuRef = useRef(null);
+  const searchRef = useRef(null);
 
   useEffect(() => {
     document.body.classList.toggle("dark-mode", darkMode);
@@ -454,6 +476,16 @@ function TopBar({ user, onLogout }) {
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+  useEffect(() => {
+    function handleShortcut(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", handleShortcut);
+    return () => document.removeEventListener("keydown", handleShortcut);
   }, []);
 
   const userInitial = user?.email?.[0]?.toUpperCase() ?? "?";
@@ -473,9 +505,12 @@ function TopBar({ user, onLogout }) {
       <div className="global-search" role="search">
         <Search size={20} aria-hidden="true" />
         <input
+          ref={searchRef}
           type="search"
           placeholder="Search your documents…"
           aria-label="Search documents"
+          value={searchQuery}
+          onChange={(event) => onSearch(event.target.value)}
         />
         <kbd aria-label="Keyboard shortcut Command K">⌘ K</kbd>
       </div>
@@ -598,8 +633,32 @@ function DocumentItem({ doc, tone }) {
 // ---------------------------------------------------------------------------
 // ChatMessageView
 // ---------------------------------------------------------------------------
+class RenderErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="render-fallback">
+          <p>This response could not be rendered safely. Showing plain text instead.</p>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{this.props.fallback ?? ""}</ReactMarkdown>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function ChatMessageView({ message }) {
   const isUser = message.role === "user";
+  const [feedback, setFeedback] = useState(null);
   const [mermaidSvgs, setMermaidSvgs] = useState({});
 
   useEffect(() => {
@@ -666,7 +725,9 @@ function ChatMessageView({ message }) {
       )}
       <div className={`message-bubble ${isUser ? "user-bubble" : "assistant-bubble"}`}>
         {message.content ? (
-          renderContent()
+          <RenderErrorBoundary fallback={message.content}>
+            <ResponseRenderer message={message} />
+          </RenderErrorBoundary>
         ) : (
           <div className="message-skeleton" aria-label="Loading response">
             <span />
@@ -681,13 +742,15 @@ function ChatMessageView({ message }) {
             )}
             <button
               aria-label="Mark as helpful"
-              onClick={() => { }}
+              className={feedback === "up" ? "active-feedback" : ""}
+              onClick={() => setFeedback(feedback === "up" ? null : "up")}
             >
               <ThumbsUp size={15} aria-hidden="true" />
             </button>
             <button
               aria-label="Mark as not helpful"
-              onClick={() => { }}
+              className={feedback === "down" ? "active-feedback" : ""}
+              onClick={() => setFeedback(feedback === "down" ? null : "down")}
             >
               <ThumbsDown size={15} aria-hidden="true" />
             </button>
@@ -709,6 +772,100 @@ function ChatMessageView({ message }) {
       )}
     </article>
   );
+}
+
+function inferResponseType(message) {
+  if (message.response_type) return message.response_type;
+  if (/```mermaid\s+[\s\S]*?```/i.test(message.content ?? "")) return "mermaid";
+  if (/^\s*\|.+\|\s*$/m.test(message.content ?? "")) return "table";
+  return "text";
+}
+
+function ResponseRenderer({ message }) {
+  const type = inferResponseType(message);
+  const content = message.content ?? "";
+
+  if (type === "mermaid") return <MermaidResponse content={content} />;
+
+  if (type === "table") {
+    return (
+      <div className="markdown-table-wrap">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  if (type === "quiz") {
+    return (
+      <div className="structured-response quiz-response">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  if (type === "summary") {
+    return (
+      <div className="structured-response summary-response">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  return <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>;
+}
+
+function MermaidResponse({ content }) {
+  const [svg, setSvg] = useState("");
+  const [error, setError] = useState("");
+  const match = content.match(/```mermaid\s*([\s\S]*?)```/i);
+  const code = match?.[1]?.trim() ?? "";
+
+  useEffect(() => {
+    let cancelled = false;
+    async function renderDiagram() {
+      if (!code) {
+        setError("No Mermaid diagram was returned.");
+        return;
+      }
+      try {
+        await mermaid.parse(code);
+        const result = await mermaid.render(`mermaid-${crypto.randomUUID()}`, code);
+        if (!cancelled) {
+          setSvg(result.svg);
+          setError("");
+        }
+      } catch {
+        if (!cancelled) {
+          setSvg("");
+          setError("The diagram could not be rendered. Showing the raw Mermaid source instead.");
+        }
+      }
+    }
+    renderDiagram();
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
+
+  if (error) {
+    return (
+      <div className="mermaid-error">
+        <p>{error}</p>
+        <pre>{code || content}</pre>
+      </div>
+    );
+  }
+
+  if (!svg) {
+    return (
+      <div className="mermaid-loading" aria-label="Rendering diagram">
+        <Loader2 className="spin" size={16} aria-hidden="true" />
+        <span>Rendering diagram...</span>
+      </div>
+    );
+  }
+
+  return <div className="mermaid-output" dangerouslySetInnerHTML={{ __html: svg }} aria-label="Mermaid diagram" />;
 }
 
 // ---------------------------------------------------------------------------

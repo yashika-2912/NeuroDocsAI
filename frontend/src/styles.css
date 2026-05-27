@@ -167,6 +167,12 @@
   box-shadow: 0 4px 16px rgba(92, 69, 233, 0.1);
 }
 
+.google-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.64;
+  background: #f8faff;
+}
+
 /* Divider */
 .auth-divider {
   display: flex;
@@ -961,6 +967,12 @@ button {
   margin-left: auto;
 }
 
+.message-footer button.active-feedback {
+  color: #5c45e9;
+  background: #f1efff;
+  border-color: #d9d4ff;
+}
+
 .message-skeleton {
   display: grid;
   gap: 10px;
@@ -1250,6 +1262,65 @@ button {
   padding: 16px 0;
   color: #6b55f2;
   font-size: 13px;
+}
+
+.mermaid-error,
+.render-fallback {
+  padding: 12px;
+  background: #fff7f7;
+  border: 1px solid #ffd9d9;
+  border-radius: 8px;
+  color: #6c2630;
+}
+
+.mermaid-error pre {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 8px 0 0;
+  padding: 10px;
+  background: #fff;
+  border-radius: 7px;
+}
+
+.markdown-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.markdown-table-wrap table,
+.assistant-bubble table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.markdown-table-wrap th,
+.markdown-table-wrap td,
+.assistant-bubble th,
+.assistant-bubble td {
+  padding: 10px 12px;
+  border: 1px solid #dfe5ef;
+  vertical-align: top;
+}
+
+.markdown-table-wrap th,
+.assistant-bubble th {
+  background: #f6f7ff;
+  color: #27324a;
+  text-align: left;
+}
+
+.structured-response {
+  max-width: 100%;
+}
+
+.quiz-response blockquote {
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: #f8faff;
+  border-left: 3px solid #725df4;
+  color: #44506a;
 }
 
 .spin {
