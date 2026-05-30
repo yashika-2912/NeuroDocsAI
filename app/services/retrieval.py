@@ -1,5 +1,11 @@
+import math
+import re
+from collections import defaultdict
+
 from app.models import Citation, SearchResult
 from app.services.vector_store import get_vector_store
+
+TOKEN_PATTERN = re.compile(r"[a-zA-Z][a-zA-Z0-9_-]+")
 
 
 def distance_to_score(distance: float | None) -> float | None:
@@ -27,8 +33,56 @@ def build_citation(chunk_id: str, metadata: dict) -> Citation:
     )
 
 
+def _token_set(text: str) -> set[str]:
+    return {
+        token.lower().rstrip("s")
+        for token in TOKEN_PATTERN.findall(text)
+        if len(token) > 2
+    }
+
+
+def _jaccard(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
+def diversify_results(results: list[SearchResult], top_k: int) -> list[SearchResult]:
+    selected: list[SearchResult] = []
+    selected_tokens: list[set[str]] = []
+    per_document: dict[str, int] = defaultdict(int)
+    max_per_document = max(1, math.ceil(top_k / 2))
+
+    for result in results:
+        tokens = _token_set(result.text)
+        if any(_jaccard(tokens, existing) >= 0.82 for existing in selected_tokens):
+            continue
+        if per_document[result.citation.document_id] >= max_per_document and len(selected) < top_k - 1:
+            continue
+
+        selected.append(result)
+        selected_tokens.append(tokens)
+        per_document[result.citation.document_id] += 1
+
+        if len(selected) >= top_k:
+            break
+
+    if len(selected) < top_k:
+        selected_ids = {result.chunk_id for result in selected}
+        for result in results:
+            if result.chunk_id not in selected_ids:
+                selected.append(result)
+            if len(selected) >= top_k:
+                break
+
+    for rank, result in enumerate(selected, start=1):
+        result.rank = rank
+    return selected[:top_k]
+
+
 def retrieve_relevant_chunks(query: str, top_k: int) -> list[SearchResult]:
-    matches = get_vector_store().search(query=query, top_k=top_k)
+    candidate_count = min(max(top_k * 4, top_k), 50)
+    matches = get_vector_store().search(query=query, top_k=candidate_count)
     results: list[SearchResult] = []
 
     for index, match in enumerate(matches, start=1):
@@ -44,4 +98,4 @@ def retrieve_relevant_chunks(query: str, top_k: int) -> list[SearchResult]:
             )
         )
 
-    return results
+    return diversify_results(results, top_k)
